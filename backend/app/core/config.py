@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     cloudinary_url: str = ""
 
     # Trained model + prediction settings
-    ml_model_path: str = "ml_model/pneumonia_model.keras"
+    ml_model_path: str = "ml_model/pneumonia_model.tflite"
     threshold: float = 0.5
     max_upload_mb: int = 10
 

@@ -1,4 +1,5 @@
 import io
+import time
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from PIL import Image
@@ -13,6 +14,16 @@ from app.schemas.prediction import PredictionOut
 from app.services import storage_service
 
 router = APIRouter(tags=["predict"])
+
+
+def shrink_for_storage(data: bytes, max_side: int = 1024) -> bytes:
+    """Makes a smaller JPEG copy for storing, so big uploads do not slow down the Cloudinary upload.
+    (The model still uses the original image.)"""
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    img.thumbnail((max_side, max_side))
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85)
+    return out.getvalue()
 
 
 @router.post("/predict", response_model=PredictionOut)
@@ -31,8 +42,11 @@ def predict(
     except Exception:
         raise HTTPException(400, "Please upload a valid image (JPG or PNG)")
 
+    t0 = time.perf_counter()
     label, confidence, p = predictor.predict(data)
-    url, image_id = storage_service.save_image(data, user_id)
+    t1 = time.perf_counter()
+    url, image_id = storage_service.save_image(shrink_for_storage(data), user_id)
+    t2 = time.perf_counter()
 
     row = Prediction(
         user_id=user_id,
@@ -46,4 +60,8 @@ def predict(
     db.add(row)
     db.commit()
     db.refresh(row)
+    t3 = time.perf_counter()
+
+    # timing log: shows which step is slow (visible in the terminal / Render logs)
+    print(f"[predict] size={len(data)/1024:.0f}KB model={t1-t0:.2f}s upload={t2-t1:.2f}s database={t3-t2:.2f}s")
     return row
